@@ -681,3 +681,55 @@ func TestSearchTracesHandler_Handle_LimitEnforced(t *testing.T) {
 	// Returned traces are capped at exactly the limit (5 traces, limit=3 → exactly 3 traces)
 	assert.Len(t, output.Traces, 3)
 }
+
+func TestBuildTraceSummary_GenAIMetadata(t *testing.T) {
+	traces := ptrace.NewTraces()
+	rs := traces.ResourceSpans().AppendEmpty()
+	rs.Resource().Attributes().PutStr("service.name", "llm-service")
+
+	tid := pcommon.TraceID{}
+	copy(tid[:], "genaitrace000000")
+
+	// Root span — LLM call with full GenAI attributes
+	root := rs.ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+	root.SetTraceID(tid)
+	root.SetSpanID(pcommon.SpanID([8]byte{1}))
+	root.SetName("llm.chat")
+	root.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(-2 * time.Second)))
+	root.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	root.Attributes().PutStr("gen_ai.system", "openai")
+	root.Attributes().PutStr("gen_ai.request.model", "gpt-4o")
+	root.Attributes().PutStr("gen_ai.agent.name", "my-agent")
+	root.Attributes().PutInt("gen_ai.usage.input_tokens", 100)
+	root.Attributes().PutInt("gen_ai.usage.output_tokens", 50)
+
+	// Child span — another LLM call, tokens should be summed
+	child := rs.ScopeSpans().AppendEmpty().Spans().AppendEmpty()
+	child.SetTraceID(tid)
+	child.SetSpanID(pcommon.SpanID([8]byte{2}))
+	child.SetParentSpanID(pcommon.SpanID([8]byte{1}))
+	child.SetName("llm.chat")
+	child.SetStartTimestamp(pcommon.NewTimestampFromTime(time.Now().Add(-1 * time.Second)))
+	child.SetEndTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	child.Attributes().PutStr("gen_ai.system", "openai")
+	child.Attributes().PutInt("gen_ai.usage.input_tokens", 200)
+	child.Attributes().PutInt("gen_ai.usage.output_tokens", 75)
+
+	summary := buildTraceSummary(traces)
+
+	assert.True(t, summary.IsGenAI)
+	assert.Equal(t, "gpt-4o", summary.ModelName)
+	assert.Equal(t, "my-agent", summary.AgentName)
+	assert.Equal(t, int64(300), summary.TotalInputTokens)
+	assert.Equal(t, int64(125), summary.TotalOutputTokens)
+}
+
+func TestBuildTraceSummary_NonGenAI_NoGenAIFields(t *testing.T) {
+	summary := buildTraceSummary(createTestTrace("trace-plain", "svc", "/op", false))
+
+	assert.False(t, summary.IsGenAI)
+	assert.Empty(t, summary.ModelName)
+	assert.Empty(t, summary.AgentName)
+	assert.Zero(t, summary.TotalInputTokens)
+	assert.Zero(t, summary.TotalOutputTokens)
+}

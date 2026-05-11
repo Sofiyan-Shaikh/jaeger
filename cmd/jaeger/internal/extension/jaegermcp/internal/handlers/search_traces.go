@@ -199,6 +199,11 @@ func buildTraceSummary(trace ptrace.Traces) types.TraceSummary {
 	var minStartTime, maxEndTime time.Time
 	spanCount := 0
 
+	// GenAI accumulators
+	var isGenAI bool
+	var modelName, agentName string
+	var totalInputTokens, totalOutputTokens int64
+
 	// Iterate through all spans in the trace
 	for pos, span := range jptrace.SpanIter(trace) {
 		spanCount++
@@ -232,6 +237,28 @@ func buildTraceSummary(trace ptrace.Traces) types.TraceSummary {
 		if span.Status().Code() == ptrace.StatusCodeError {
 			hasErrors = true
 		}
+
+		// Extract GenAI attributes
+		attrs := span.Attributes()
+		if _, ok := attrs.Get("gen_ai.system"); ok {
+			isGenAI = true
+		}
+		if modelName == "" {
+			if v, ok := attrs.Get("gen_ai.request.model"); ok {
+				modelName = v.Str()
+			}
+		}
+		if agentName == "" {
+			if v, ok := attrs.Get("gen_ai.agent.name"); ok {
+				agentName = v.Str()
+			}
+		}
+		if v, ok := attrs.Get("gen_ai.usage.input_tokens"); ok {
+			totalInputTokens += v.Int()
+		}
+		if v, ok := attrs.Get("gen_ai.usage.output_tokens"); ok {
+			totalOutputTokens += v.Int()
+		}
 	}
 
 	// Calculate duration
@@ -260,6 +287,11 @@ func buildTraceSummary(trace ptrace.Traces) types.TraceSummary {
 	summary.ServiceCount = len(services)
 	summary.Services = serviceNames
 	summary.HasErrors = hasErrors
+	summary.IsGenAI = isGenAI
+	summary.ModelName = modelName
+	summary.AgentName = agentName
+	summary.TotalInputTokens = totalInputTokens
+	summary.TotalOutputTokens = totalOutputTokens
 
 	return summary
 }

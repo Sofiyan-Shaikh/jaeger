@@ -56,4 +56,11 @@ type TraceSummary struct {
 	ServiceCount int      `json:"service_count" jsonschema:"Number of unique services in the trace"`
 	Services     []string `json:"services" jsonschema:"Sorted list of unique service names participating in the trace"`
 	HasErrors    bool     `json:"has_errors" jsonschema:"Whether the trace contains any error spans"`
+
+	// GenAI fields populated from OTel GenAI semantic convention attributes.
+	IsGenAI           bool   `json:"is_genai,omitempty" jsonschema:"Whether the trace contains GenAI spans (gen_ai.system present)"`
+	ModelName         string `json:"model_name,omitempty" jsonschema:"GenAI model name from gen_ai.request.model"`
+	AgentName         string `json:"agent_name,omitempty" jsonschema:"GenAI agent name from gen_ai.agent.name"`
+	TotalInputTokens  int64  `json:"total_input_tokens,omitempty" jsonschema:"Total input tokens across all GenAI spans"`
+	TotalOutputTokens int64  `json:"total_output_tokens,omitempty" jsonschema:"Total output tokens across all GenAI spans"`
 }
